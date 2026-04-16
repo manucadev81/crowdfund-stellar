@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import * as StellarSdk from '@stellar/stellar-sdk';
 import { getWalletKit, subscribeWalletState } from '@/lib/walletKit';
-import { readStellarConfig } from '@/lib/stellarConfig';
+import { readStellarConfig, type StellarConfig } from '@/lib/stellarConfig';
 import { transactionExplorerUrl } from '@/lib/stellarExplorer';
 import { fetchDonationHistory, type DonationHistoryRow } from '@/lib/donationHistory';
 
@@ -71,6 +71,17 @@ function ConfigMissing({ missing }: { missing: string[] }) {
 export default function Home() {
   const stellar = useMemo(() => readStellarConfig(), []);
   const cfg = stellar.ok ? stellar.config : null;
+  const cfgRef = useRef<StellarConfig | null>(null);
+  cfgRef.current = cfg;
+
+  const configKey = useMemo(
+    () =>
+      stellar.ok
+        ? `${stellar.config.rpcUrl}|${stellar.config.contractId}|${stellar.config.networkPassphrase}|${stellar.config.horizonUrl}`
+        : '',
+    [stellar],
+  );
+
   const [publicKey, setPublicKey] = useState('');
   const [totalRaised, setTotalRaised] = useState(0);
   const [goal, setGoal] = useState(10000000000);
@@ -85,15 +96,29 @@ export default function Home() {
   const [donationHistoryLoading, setDonationHistoryLoading] = useState(false);
   const [donationHistoryError, setDonationHistoryError] = useState('');
   const eventsCursorRef = useRef<string | null>(null);
+  const readClientCache = useRef<{ key: string; client: CrowdfundClient | null }>({ key: '', client: null });
+  /** Incrementado no cleanup dos efeitos para ignorar respostas antigas (troca de rede / desmontagem). */
+  const donationHistoryEpoch = useRef(0);
+
+  const getReadClient = useCallback(async (c: StellarConfig) => {
+    const key = `${c.contractId}|${c.rpcUrl}|${c.networkPassphrase}`;
+    if (readClientCache.current.key === key && readClientCache.current.client) {
+      return readClientCache.current.client;
+    }
+    const client = (await StellarSdk.contract.Client.from({
+      contractId: c.contractId,
+      networkPassphrase: c.networkPassphrase,
+      rpcUrl: c.rpcUrl,
+    })) as CrowdfundClient;
+    readClientCache.current = { key, client };
+    return client;
+  }, []);
 
   const fetchProgress = useCallback(async () => {
-    if (!cfg) return;
+    const c = cfgRef.current;
+    if (!c) return;
     try {
-      const client = (await StellarSdk.contract.Client.from({
-        contractId: cfg.contractId,
-        networkPassphrase: cfg.networkPassphrase,
-        rpcUrl: cfg.rpcUrl,
-      })) as CrowdfundClient;
+      const client = await getReadClient(c);
       const { result: total } = await client.get_total();
       const { result: g } = await client.get_goal();
       const totalN = Number(total);
@@ -105,22 +130,34 @@ export default function Home() {
     } catch {
       /* contrato inválido / RPC indisponível */
     }
-  }, [cfg]);
+  }, [getReadClient]);
+
+  const fetchProgressRef = useRef(fetchProgress);
+  fetchProgressRef.current = fetchProgress;
 
   const loadDonationHistory = useCallback(async (mode: 'full' | 'soft' = 'full') => {
-    if (!cfg) return;
+    const c = cfgRef.current;
+    if (!c) return;
+    const epoch = donationHistoryEpoch.current;
     if (mode === 'full') setDonationHistoryLoading(true);
     setDonationHistoryError('');
     const { rows, error } = await fetchDonationHistory(
-      cfg.rpcUrl,
-      cfg.contractId,
-      cfg.networkPassphrase,
-      cfg.horizonUrl,
+      c.rpcUrl,
+      c.contractId,
+      c.networkPassphrase,
+      c.horizonUrl,
+      mode === 'soft'
+        ? { maxPages: 3, lookbackLedgers: 12_000, pageLimit: 200 }
+        : { maxPages: 12, lookbackLedgers: 150_000, pageLimit: 200 },
     );
+    if (epoch !== donationHistoryEpoch.current) return;
     if (error) setDonationHistoryError(error);
     setDonationHistory(rows);
     if (mode === 'full') setDonationHistoryLoading(false);
-  }, [cfg]);
+  }, []);
+
+  const loadDonationHistoryRef = useRef(loadDonationHistory);
+  loadDonationHistoryRef.current = loadDonationHistory;
 
   const connectWallet = async () => {
     setErrorMsg('');
@@ -235,24 +272,29 @@ export default function Home() {
   };
 
   useEffect(() => {
-    if (!cfg) return;
-    fetchProgress();
-    const interval = setInterval(fetchProgress, 4000);
+    if (!configKey) return;
+    void fetchProgressRef.current();
+    const interval = setInterval(() => void fetchProgressRef.current(), 10_000);
     return () => clearInterval(interval);
-  }, [cfg, fetchProgress]);
+  }, [configKey]);
 
   useEffect(() => {
-    if (!cfg) return;
-    void loadDonationHistory('full');
-    const id = setInterval(() => void loadDonationHistory('soft'), 45_000);
-    return () => clearInterval(id);
-  }, [cfg, loadDonationHistory]);
+    if (!configKey) return;
+    void loadDonationHistoryRef.current('full');
+    const id = setInterval(() => void loadDonationHistoryRef.current('soft'), 120_000);
+    return () => {
+      donationHistoryEpoch.current += 1;
+      clearInterval(id);
+    };
+  }, [configKey]);
 
   useEffect(() => {
     let cancelled = false;
     let off: (() => void) | undefined;
     subscribeWalletState((payload) => {
-      if (!cancelled) setPublicKey(payload.address ?? '');
+      if (cancelled) return;
+      const addr = payload.address ?? '';
+      setPublicKey((prev) => (prev === addr ? prev : addr));
     })
       .then((unsub) => {
         if (!cancelled) off = unsub;
@@ -267,11 +309,14 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    if (!cfg) return;
-    const rpc = new StellarSdk.rpc.Server(cfg.rpcUrl);
+    if (!configKey) return;
+    const c = cfgRef.current;
+    if (!c) return;
+    const rpc = new StellarSdk.rpc.Server(c.rpcUrl);
+    const filter = { type: 'contract' as const, contractIds: [c.contractId] };
+
     const pollEvents = async () => {
       try {
-        const filter = { type: 'contract' as const, contractIds: [cfg.contractId] };
         const res = eventsCursorRef.current
           ? await rpc.getEvents({
               filters: [filter],
@@ -288,15 +333,19 @@ export default function Home() {
               });
             })();
         eventsCursorRef.current = res.cursor;
-        if (res.events.length > 0) fetchProgress();
+        if (res.events.length > 0) void fetchProgressRef.current();
       } catch {
         /* RPC pode limitar startLedger em alguns momentos */
       }
     };
-    pollEvents();
-    const id = setInterval(pollEvents, 6000);
-    return () => clearInterval(id);
-  }, [cfg, fetchProgress]);
+
+    void pollEvents();
+    const id = setInterval(() => void pollEvents(), 15_000);
+    return () => {
+      clearInterval(id);
+      eventsCursorRef.current = null;
+    };
+  }, [configKey]);
 
   if (!cfg) {
     return <ConfigMissing missing={stellar.ok === false ? stellar.missing : []} />;

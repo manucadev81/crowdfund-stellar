@@ -81,8 +81,8 @@ export async function fetchDonationHistory(
   horizonUrl: string,
   opts: FetchDonationHistoryOptions = {},
 ): Promise<{ rows: DonationHistoryRow[]; error?: string }> {
-  const maxPages = opts.maxPages ?? 30;
-  const lookbackLedgers = opts.lookbackLedgers ?? 400_000;
+  const maxPages = opts.maxPages ?? 12;
+  const lookbackLedgers = opts.lookbackLedgers ?? 150_000;
   const pageLimit = opts.pageLimit ?? 200;
 
   const rpc = new StellarSdk.rpc.Server(rpcUrl);
