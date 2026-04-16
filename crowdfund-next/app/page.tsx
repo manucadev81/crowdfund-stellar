@@ -5,6 +5,7 @@ import * as StellarSdk from '@stellar/stellar-sdk';
 import { getWalletKit, subscribeWalletState } from '@/lib/walletKit';
 import { readStellarConfig } from '@/lib/stellarConfig';
 import { transactionExplorerUrl } from '@/lib/stellarExplorer';
+import { fetchDonationHistory, type DonationHistoryRow } from '@/lib/donationHistory';
 
 function formatPtBR(value: number, minFrac = 2, maxFrac = 2): string {
   return value.toLocaleString('pt-BR', {
@@ -15,6 +16,15 @@ function formatPtBR(value: number, minFrac = 2, maxFrac = 2): string {
 
 function stroopsToXlmLabel(stroops: number): string {
   return formatPtBR(stroops / 10_000_000);
+}
+
+function stroopsBigintToXlmLabel(stroops: bigint): string {
+  return formatPtBR(Number(stroops) / 10_000_000);
+}
+
+function shortAccount(id: string): string {
+  if (id.length <= 12) return id;
+  return `${id.slice(0, 6)}…${id.slice(-4)}`;
 }
 
 /** Métodos vêm do spec on-chain; o tipo base `Client` não os lista estaticamente. */
@@ -71,6 +81,9 @@ export default function Home() {
     payment?: string;
     soroban?: string;
   } | null>(null);
+  const [donationHistory, setDonationHistory] = useState<DonationHistoryRow[]>([]);
+  const [donationHistoryLoading, setDonationHistoryLoading] = useState(false);
+  const [donationHistoryError, setDonationHistoryError] = useState('');
   const eventsCursorRef = useRef<string | null>(null);
 
   const fetchProgress = useCallback(async () => {
@@ -92,6 +105,21 @@ export default function Home() {
     } catch {
       /* contrato inválido / RPC indisponível */
     }
+  }, [cfg]);
+
+  const loadDonationHistory = useCallback(async (mode: 'full' | 'soft' = 'full') => {
+    if (!cfg) return;
+    if (mode === 'full') setDonationHistoryLoading(true);
+    setDonationHistoryError('');
+    const { rows, error } = await fetchDonationHistory(
+      cfg.rpcUrl,
+      cfg.contractId,
+      cfg.networkPassphrase,
+      cfg.horizonUrl,
+    );
+    if (error) setDonationHistoryError(error);
+    setDonationHistory(rows);
+    if (mode === 'full') setDonationHistoryLoading(false);
   }, [cfg]);
 
   const connectWallet = async () => {
@@ -185,6 +213,7 @@ export default function Home() {
 
       setTxStatus('SUCCESS');
       fetchProgress();
+      void loadDonationHistory('soft');
     } catch (err: unknown) {
       setTxStatus('FAILED');
       const msg = err instanceof Error ? err.message : String(err);
@@ -211,6 +240,13 @@ export default function Home() {
     const interval = setInterval(fetchProgress, 4000);
     return () => clearInterval(interval);
   }, [cfg, fetchProgress]);
+
+  useEffect(() => {
+    if (!cfg) return;
+    void loadDonationHistory('full');
+    const id = setInterval(() => void loadDonationHistory('soft'), 45_000);
+    return () => clearInterval(id);
+  }, [cfg, loadDonationHistory]);
 
   useEffect(() => {
     let cancelled = false;
@@ -360,6 +396,85 @@ export default function Home() {
               ) : null}
             </div>
           ) : null}
+        </div>
+
+        <div className="mt-14 rounded-2xl border border-zinc-800 bg-zinc-900/60 p-6">
+          <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <h2 className="text-lg font-semibold text-zinc-100">Histórico de doações</h2>
+            <button
+              type="button"
+              onClick={() => void loadDonationHistory('full')}
+              disabled={donationHistoryLoading}
+              className="rounded-lg border border-zinc-600 px-3 py-1.5 text-sm text-zinc-200 hover:bg-zinc-800 disabled:opacity-50"
+            >
+              {donationHistoryLoading ? 'Atualizando…' : 'Atualizar'}
+            </button>
+          </div>
+          {donationHistoryError ? (
+            <p className="text-sm text-amber-400/90 mb-3">
+              Não foi possível carregar o histórico: {donationHistoryError}
+            </p>
+          ) : null}
+          {donationHistoryLoading && donationHistory.length === 0 ? (
+            <p className="text-sm text-zinc-500">Carregando eventos on-chain…</p>
+          ) : null}
+          {!donationHistoryLoading && donationHistory.length === 0 && !donationHistoryError ? (
+            <p className="text-sm text-zinc-500">Nenhuma doação registrada no contrato ainda.</p>
+          ) : null}
+          {donationHistory.length > 0 ? (
+            <div className="overflow-x-auto -mx-2 px-2">
+              <table className="w-full min-w-[640px] text-left text-sm">
+                <thead>
+                  <tr className="border-b border-zinc-700 text-zinc-400">
+                    <th className="py-2 pr-3 font-medium">Data</th>
+                    <th className="py-2 pr-3 font-medium">Carteira (doador)</th>
+                    <th className="py-2 pr-3 font-medium text-right">Valor</th>
+                    <th className="py-2 pr-3 font-medium text-right">Total após</th>
+                    <th className="py-2 font-medium">Transação</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {donationHistory.map((row) => (
+                    <tr key={row.id} className="border-b border-zinc-800/80 text-zinc-200">
+                      <td className="py-2.5 pr-3 whitespace-nowrap text-zinc-400">
+                        {new Date(row.ledgerClosedAt).toLocaleString('pt-BR', {
+                          dateStyle: 'short',
+                          timeStyle: 'short',
+                        })}
+                      </td>
+                      <td className="py-2.5 pr-3 font-mono text-xs" title={row.donor}>
+                        {shortAccount(row.donor)}
+                      </td>
+                      <td className="py-2.5 pr-3 text-right font-mono">{stroopsBigintToXlmLabel(row.amountStroops)} XLM</td>
+                      <td className="py-2.5 pr-3 text-right font-mono text-zinc-400">
+                        {stroopsBigintToXlmLabel(row.totalAfterStroops)} XLM
+                      </td>
+                      <td className="py-2.5">
+                        {row.explorerUrl ? (
+                          <a
+                            href={row.explorerUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-sky-400 underline hover:text-sky-300"
+                          >
+                            Ver no explorador
+                          </a>
+                        ) : (
+                          <span className="font-mono text-xs text-zinc-500" title={row.txHash}>
+                            {shortAccount(row.txHash)}
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : null}
+          <p className="mt-3 text-xs text-zinc-600">
+            Fonte: eventos <code className="text-zinc-500">DONATION</code> do contrato (Soroban). A lista cobre a
+            janela de ledgers suportada pelo RPC.
+          </p>
         </div>
 
         {publicKey ? (
