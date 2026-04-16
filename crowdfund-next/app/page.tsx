@@ -3,12 +3,13 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import * as StellarSdk from '@stellar/stellar-sdk';
 import { getWalletKit, subscribeWalletState } from '@/lib/walletKit';
-
-const HORIZON_URL = 'https://horizon-testnet.stellar.org';
-const RPC_URL = 'https://soroban-testnet.stellar.org';
-const NETWORK_PASSPHRASE = 'Test SDF Network ; September 2015';
-const CONTRACT_ID = 'CCIXVT52O4B5PGU4XD6FXVDGSVKQZQ4D6NSHL5XOMKURYBO46KTR6YUF';
-const CAMPAIGN_ADDRESS = 'GAPDLT5ZUYBXFAH6FZ7FWTRYGFC5QXVYR6JML6FUXKDSKPNLHD2AXXAQ';
+import {
+  CAMPAIGN_ADDRESS,
+  CONTRACT_ID,
+  HORIZON_URL,
+  NETWORK_PASSPHRASE,
+  RPC_URL,
+} from '@/lib/stellarConfig';
 
 function formatPtBR(value: number, minFrac = 2, maxFrac = 2): string {
   return value.toLocaleString('pt-BR', {
