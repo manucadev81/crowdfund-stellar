@@ -25,18 +25,32 @@ type CrowdfundClient = StellarSdk.contract.Client & {
   >;
 };
 
-function ConfigMissing() {
+function ConfigMissing({ missing }: { missing: string[] }) {
   return (
     <div className="min-h-screen bg-zinc-950 text-white p-8 flex items-center justify-center">
       <div className="max-w-lg rounded-2xl border border-amber-500/40 bg-zinc-900/80 p-8 text-center">
         <h1 className="text-xl font-semibold text-amber-200 mb-3">Configuração incompleta</h1>
-        <p className="text-zinc-300 text-sm mb-4">
-          Defina as variáveis <code className="text-amber-100/90">NEXT_PUBLIC_*</code> no painel da Vercel
-          (Settings → Environment Variables) ou crie um arquivo <code className="text-amber-100/90">.env</code>{' '}
-          localmente, conforme <code className="text-amber-100/90">crowdfund-next/.env.example</code>.
+        <p className="text-zinc-300 text-sm mb-3">
+          O arquivo <code className="text-amber-100/90">.env</code> da sua máquina{' '}
+          <strong className="text-amber-100">não é enviado</strong> para a Vercel. Cadastre as variáveis no
+          projeto: <strong>Settings → Environment Variables</strong>, marque Production (e Preview se quiser), depois
+          faça um <strong>Redeploy</strong>.
+        </p>
+        <p className="text-zinc-400 text-xs mb-3">Variáveis ausentes neste deploy:</p>
+        <ul className="mb-4 rounded-lg bg-zinc-950/80 px-4 py-3 text-left font-mono text-xs text-amber-100/90">
+          {missing.map((k) => (
+            <li key={k}>{k}</li>
+          ))}
+        </ul>
+        <p className="text-zinc-500 text-xs mb-2">
+          Modelo: <code className="text-zinc-400">crowdfund-next/.env.example</code> no repositório.
         </p>
         <p className="text-zinc-500 text-xs">
-          Sem isso o app não chama Horizon/Soroban e pode falhar ao carregar.
+          Diagnóstico no servidor: abra{' '}
+          <a href="/api/env-check" className="text-sky-400 underline">
+            /api/env-check
+          </a>{' '}
+          (mostra quais chaves o deploy enxerga, sem revelar valores).
         </p>
       </div>
     </div>
@@ -44,7 +58,8 @@ function ConfigMissing() {
 }
 
 export default function Home() {
-  const cfg = useMemo(() => readStellarConfig(), []);
+  const stellar = useMemo(() => readStellarConfig(), []);
+  const cfg = stellar.ok ? stellar.config : null;
   const [publicKey, setPublicKey] = useState('');
   const [totalRaised, setTotalRaised] = useState(0);
   const [goal, setGoal] = useState(10000000000);
@@ -231,7 +246,7 @@ export default function Home() {
   }, [cfg, fetchProgress]);
 
   if (!cfg) {
-    return <ConfigMissing />;
+    return <ConfigMissing missing={stellar.ok === false ? stellar.missing : []} />;
   }
 
   return (

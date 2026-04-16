@@ -20,11 +20,23 @@ Se estiver **criando o projeto de novo**: na etapa de importar o Git, use **Edit
 
 ## Variáveis de ambiente
 
-No app, URLs e IDs vêm de variáveis `NEXT_PUBLIC_*` (ver `crowdfund-next/.env.example`).
+O `.env` local **não** sobe no deploy. Copie os nomes do arquivo `crowdfund-next/.env.example` e crie cada entrada na Vercel: **Settings** → **Environment Variables** → escolha **Production** (e **Preview**, se quiser) → **Save** → **Redeploy**.
 
-Na Vercel: **Settings** → **Environment Variables** e cadastre as mesmas chaves para **Production** (e Preview, se quiser).
+Chaves esperadas:
 
-Sem elas, o build ou o runtime pode falhar.
+- `NEXT_PUBLIC_HORIZON_URL`
+- `NEXT_PUBLIC_RPC_URL`
+- `NEXT_PUBLIC_NETWORK_PASSPHRASE`
+- `NEXT_PUBLIC_CONTRACT_ID`
+- `NEXT_PUBLIC_CAMPAIGN_ADDRESS`
+
+Sem elas, a home mostra “Configuração incompleta” em produção.
+
+## Ainda não funciona depois de cadastrar?
+
+1. Confirme que as variáveis estão em **Production** (não só Preview) e fez **Redeploy** depois de salvar.
+2. Abra `https://SEU-DOMINIO.vercel.app/api/env-check` — deve retornar JSON com `"ok": true` e cada chave `"vars": { "...": true }`. Se alguma for `false`, o deploy ainda não recebe essa variável.
+3. O código usa **nomes literais** `process.env.NEXT_PUBLIC_…` no cliente (exigência do Next para injetar valores no build). Não use leitura dinâmica por string em componentes client.
 
 ## Conferir o build
 

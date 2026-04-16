@@ -6,31 +6,42 @@ export type StellarConfig = {
   campaignAddress: string;
 };
 
-const KEYS = [
-  'NEXT_PUBLIC_HORIZON_URL',
-  'NEXT_PUBLIC_RPC_URL',
-  'NEXT_PUBLIC_NETWORK_PASSPHRASE',
-  'NEXT_PUBLIC_CONTRACT_ID',
-  'NEXT_PUBLIC_CAMPAIGN_ADDRESS',
-] as const;
+export type StellarConfigRead =
+  | { ok: true; config: StellarConfig }
+  | { ok: false; missing: string[] };
 
 /**
- * Lê configuração em tempo de uso (não no load do módulo), para não derrubar
- * o bundle inteiro na Vercel quando as envs ainda não foram configuradas.
+ * Lê variáveis NEXT_PUBLIC_* com nomes literais em cada acesso.
+ * Importante no Next.js: `process.env[chaveDinâmica]` no **client** não é
+ * inlined no build — fica undefined na Vercel. Acessos explícitos são substituídos
+ * pelos valores no momento do deploy.
  */
-export function readStellarConfig(): StellarConfig | null {
-  const raw: Record<string, string | undefined> = {};
-  for (const k of KEYS) {
-    raw[k] = process.env[k]?.trim();
+export function readStellarConfig(): StellarConfigRead {
+  const horizonUrl = process.env.NEXT_PUBLIC_HORIZON_URL?.trim();
+  const rpcUrl = process.env.NEXT_PUBLIC_RPC_URL?.trim();
+  const networkPassphrase = process.env.NEXT_PUBLIC_NETWORK_PASSPHRASE?.trim();
+  const contractId = process.env.NEXT_PUBLIC_CONTRACT_ID?.trim();
+  const campaignAddress = process.env.NEXT_PUBLIC_CAMPAIGN_ADDRESS?.trim();
+
+  const missing: string[] = [];
+  if (!horizonUrl) missing.push('NEXT_PUBLIC_HORIZON_URL');
+  if (!rpcUrl) missing.push('NEXT_PUBLIC_RPC_URL');
+  if (!networkPassphrase) missing.push('NEXT_PUBLIC_NETWORK_PASSPHRASE');
+  if (!contractId) missing.push('NEXT_PUBLIC_CONTRACT_ID');
+  if (!campaignAddress) missing.push('NEXT_PUBLIC_CAMPAIGN_ADDRESS');
+
+  if (missing.length) {
+    return { ok: false, missing };
   }
-  for (const k of KEYS) {
-    if (!raw[k]) return null;
-  }
+
   return {
-    horizonUrl: raw.NEXT_PUBLIC_HORIZON_URL!,
-    rpcUrl: raw.NEXT_PUBLIC_RPC_URL!,
-    networkPassphrase: raw.NEXT_PUBLIC_NETWORK_PASSPHRASE!,
-    contractId: raw.NEXT_PUBLIC_CONTRACT_ID!,
-    campaignAddress: raw.NEXT_PUBLIC_CAMPAIGN_ADDRESS!,
+    ok: true,
+    config: {
+      horizonUrl: horizonUrl!,
+      rpcUrl: rpcUrl!,
+      networkPassphrase: networkPassphrase!,
+      contractId: contractId!,
+      campaignAddress: campaignAddress!,
+    },
   };
 }
