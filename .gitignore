@@ -4,3 +4,8 @@ target
 # Local settings
 .soroban
 .stellar
+
+# Next.js app (crowdfund-next)
+crowdfund-next/node_modules
+crowdfund-next/.next
+crowdfund-next/out
