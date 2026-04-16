@@ -84,9 +84,17 @@ export function parseDonationEvent(
 
 export type FetchDonationHistoryOptions = {
   maxPages?: number;
-  /** Janela inicial em ledgers (primeira página sem cursor). */
+  /**
+   * Janela em ledgers quando `fromOldestAvailable` é false:
+   * `startLedger = max(rpc.oldestLedger, latest - lookbackLedgers)`.
+   */
   lookbackLedgers?: number;
   pageLimit?: number;
+  /**
+   * Se true (padrão em cargas “completas”), começa em `getHealth().oldestLedger` para cobrir
+   * todo o retention do RPC (inclui doações antigas). Se false, usa só `lookbackLedgers` a partir do fim.
+   */
+  fromOldestAvailable?: boolean;
 };
 
 /**
@@ -99,9 +107,11 @@ export async function fetchDonationHistory(
   horizonUrl: string,
   opts: FetchDonationHistoryOptions = {},
 ): Promise<{ rows: DonationHistoryRow[]; error?: string }> {
-  const maxPages = opts.maxPages ?? 12;
+  const maxPages = opts.maxPages ?? 40;
   const lookbackLedgers = opts.lookbackLedgers ?? 150_000;
   const pageLimit = opts.pageLimit ?? 200;
+  /** `undefined` = usar todo o retention (recomendado para histórico completo). `false` = só `lookbackLedgers`. */
+  const fromOldest = opts.fromOldestAvailable !== false;
 
   const rpc = new StellarSdk.rpc.Server(rpcUrl);
   const filter = { type: 'contract' as const, contractIds: [contractId] };
@@ -109,15 +119,22 @@ export async function fetchDonationHistory(
 
   try {
     const latest = await rpc.getLatestLedger();
-    const startLedger = Math.max(1, latest.sequence - lookbackLedgers);
+    const health = await rpc.getHealth().catch(() => null);
+
+    let startLedger: number;
+    if (fromOldest && health) {
+      startLedger = Math.max(1, Math.min(health.oldestLedger, latest.sequence));
+    } else {
+      const rawStart = Math.max(1, latest.sequence - lookbackLedgers);
+      startLedger = health ? Math.max(health.oldestLedger, Math.min(rawStart, latest.sequence)) : rawStart;
+    }
+
     let cursor: string | undefined;
 
     for (let page = 0; page < maxPages; page++) {
       const res = cursor
         ? await rpc.getEvents({ filters: [filter], cursor, limit: pageLimit })
         : await rpc.getEvents({ filters: [filter], startLedger, limit: pageLimit });
-
-      if (!res.events.length) break;
 
       for (const evt of res.events) {
         const row = parseDonationEvent(evt, networkPassphrase, horizonUrl);

@@ -147,8 +147,8 @@ export default function Home() {
       c.networkPassphrase,
       c.horizonUrl,
       mode === 'soft'
-        ? { maxPages: 3, lookbackLedgers: 12_000, pageLimit: 200 }
-        : { maxPages: 12, lookbackLedgers: 150_000, pageLimit: 200 },
+        ? { maxPages: 4, lookbackLedgers: 25_000, pageLimit: 200, fromOldestAvailable: false }
+        : { maxPages: 80, pageLimit: 200, fromOldestAvailable: true },
     );
     if (epoch !== donationHistoryEpoch.current) return;
     if (error) setDonationHistoryError(formatUnknownError(error));
