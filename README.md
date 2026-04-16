@@ -1,5 +1,13 @@
 # Soroban Project
 
+## Demo — Crowdfunding Stellar (testnet)
+
+- **Aplicação (Vercel):** [https://crowdfund-stellar-5hwb.vercel.app/](https://crowdfund-stellar-5hwb.vercel.app/)
+- **Vídeo da demonstração:** [https://youtu.be/nkGo3x-q_8A](https://youtu.be/nkGo3x-q_8A)
+- **Transação de exemplo (chamada ao contrato Soroban):** [https://stellar.expert/explorer/testnet/tx/bd2b0c531683ab4d52acdd1e98224341a763b436c7ef3bc9948623266773b9fa](https://stellar.expert/explorer/testnet/tx/bd2b0c531683ab4d52acdd1e98224341a763b436c7ef3bc9948623266773b9fa) (hash `bd2b0c531683ab4d52acdd1e98224341a763b436c7ef3bc9948623266773b9fa`)
+
+![Interface do Stellar Crowdfunding (carteira, meta e histórico de doações)](./docs/crowdfund-demo.png)
+
 ## Project Structure
 
 This repository uses the recommended structure for a Soroban project:
