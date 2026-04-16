@@ -40,7 +40,6 @@ Monorepo with a **Soroban smart contract** (`contracts/crowdfund`) and a **Next.
 │   ├── lib/
 │   └── package.json
 ├── Cargo.toml             # Rust workspace
-├── DEPLOY_VERCEL.md       # Extra Vercel / monorepo notes (Portuguese)
 └── README.md
 ```
 
@@ -67,7 +66,7 @@ All public config uses the **`NEXT_PUBLIC_`** prefix so values are available in 
 | `NEXT_PUBLIC_CONTRACT_ID` | Deployed crowdfund **contract** id (StrKey `C…`). |
 | `NEXT_PUBLIC_CAMPAIGN_ADDRESS` | Stellar **account** address that receives the XLM payment before the contract call (`G…`). |
 
-**Important (Next.js + Vercel):** the client code reads each variable with a **literal** `process.env.NEXT_PUBLIC_*` property name. Dynamic lookups like `process.env[key]` are **not** inlined at build time and will be `undefined` in production.
+**Important (Next.js):** the client code reads each variable with a **literal** `process.env.NEXT_PUBLIC_*` property name. Dynamic lookups like `process.env[key]` are **not** inlined at build time and will be `undefined` in production.
 
 ---
 
@@ -93,31 +92,3 @@ Open [http://localhost:3000](http://localhost:3000). If configuration is missing
 Sources live in **`contracts/crowdfund`**. Build and test with your usual Soroban / Foundry workflow (see that crate’s `Makefile` and `Cargo.toml`).
 
 The contract publishes **`DONATION`** events used by the frontend history table.
-
----
-
-## Deploy on Vercel
-
-This repo is a **monorepo**: the Next.js app is **not** at the Git root. You must set Vercel’s **Root Directory** to **`crowdfund-next`**. If you leave the root as the repository root, you often get **404** on all routes.
-
-### Required steps
-
-1. Open the project in the [Vercel Dashboard](https://vercel.com/dashboard).
-2. **Settings → General → Root Directory → Edit** → set **`crowdfund-next`** (exact folder name).
-3. Save and **Redeploy** (Deployments → menu on the latest deployment → Redeploy).
-
-Official reference: [Monorepos — Root Directory](https://vercel.com/docs/monorepos#add-a-monorepo-through-the-vercel-dashboard).
-
-When **importing a new project**, set Root Directory to `crowdfund-next` **before** the first deploy.
-
-### Environment variables on Vercel
-
-Local `.env` is **not** uploaded. Add every key from `.env.example` under **Settings → Environment Variables**, enable **Production** (and **Preview** if you want), save, then **Redeploy**. Without them, production shows the incomplete-configuration screen.
-
-### Still broken after setting env?
-
-1. Confirm variables exist for **Production** (not only Preview) and you **redeployed** after saving.
-2. Open `https://<your-project>.vercel.app/api/env-check` — you should see `"ok": true` and each variable `true` under `vars`. Any `false` means that key is missing for that deployment.
-3. Verify the build log shows **Next.js** / `next build` for the `crowdfund-next` app, not an empty root build.
-
-More detail (including Portuguese notes): [`DEPLOY_VERCEL.md`](./DEPLOY_VERCEL.md).
