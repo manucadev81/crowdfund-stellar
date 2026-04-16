@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import * as StellarSdk from '@stellar/stellar-sdk';
 import { getWalletKit, subscribeWalletState } from '@/lib/walletKit';
 import { readStellarConfig } from '@/lib/stellarConfig';
+import { transactionExplorerUrl } from '@/lib/stellarExplorer';
 
 function formatPtBR(value: number, minFrac = 2, maxFrac = 2): string {
   return value.toLocaleString('pt-BR', {
@@ -66,6 +67,10 @@ export default function Home() {
   const [txStatus, setTxStatus] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
   const [progress, setProgress] = useState(0);
+  const [explorerLinks, setExplorerLinks] = useState<{
+    payment?: string;
+    soroban?: string;
+  } | null>(null);
   const eventsCursorRef = useRef<string | null>(null);
 
   const fetchProgress = useCallback(async () => {
@@ -121,6 +126,7 @@ export default function Home() {
     if (!publicKey) return alert('Conecte uma carteira!');
     setTxStatus('PENDING');
     setErrorMsg('');
+    setExplorerLinks(null);
 
     try {
       const { StellarWalletsKit } = await getWalletKit();
@@ -146,7 +152,8 @@ export default function Home() {
         address: publicKey,
       });
       const horizonTx = new StellarSdk.Transaction(signed.signedTxXdr, cfg.networkPassphrase);
-      await server.submitTransaction(horizonTx);
+      const paymentSubmit = (await server.submitTransaction(horizonTx)) as { hash?: string };
+      const paymentHash = paymentSubmit.hash;
 
       const contractClient = (await StellarSdk.contract.Client.from({
         contractId: cfg.contractId,
@@ -164,7 +171,17 @@ export default function Home() {
         donor: publicKey,
         amount: BigInt(Math.round(parseFloat(amountXLM) * 10_000_000)),
       });
-      await donateTx.signAndSend();
+      const sent = await donateTx.signAndSend();
+      const sorobanHash = sent.sendTransactionResponse?.hash;
+
+      setExplorerLinks({
+        payment: paymentHash
+          ? transactionExplorerUrl(cfg.networkPassphrase, paymentHash, cfg.horizonUrl) ?? undefined
+          : undefined,
+        soroban: sorobanHash
+          ? transactionExplorerUrl(cfg.networkPassphrase, sorobanHash, cfg.horizonUrl) ?? undefined
+          : undefined,
+      });
 
       setTxStatus('SUCCESS');
       fetchProgress();
@@ -319,6 +336,30 @@ export default function Home() {
             {txStatus === 'FAILED' && 'Falhou'}
           </p>
           {errorMsg ? <p className="text-red-500 mt-2 text-sm">{errorMsg}</p> : null}
+          {txStatus === 'SUCCESS' && explorerLinks && (explorerLinks.payment || explorerLinks.soroban) ? (
+            <div className="mt-4 flex flex-col gap-2 text-sm text-zinc-300">
+              {explorerLinks.payment ? (
+                <a
+                  href={explorerLinks.payment}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-sky-400 underline hover:text-sky-300"
+                >
+                  Ver transação de pagamento (XLM) no explorador
+                </a>
+              ) : null}
+              {explorerLinks.soroban ? (
+                <a
+                  href={explorerLinks.soroban}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-sky-400 underline hover:text-sky-300"
+                >
+                  Ver transação do contrato (Soroban) no explorador
+                </a>
+              ) : null}
+            </div>
+          ) : null}
         </div>
 
         {publicKey ? (
