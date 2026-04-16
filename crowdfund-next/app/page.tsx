@@ -1,15 +1,9 @@
 'use client';
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import * as StellarSdk from '@stellar/stellar-sdk';
 import { getWalletKit, subscribeWalletState } from '@/lib/walletKit';
-import {
-  CAMPAIGN_ADDRESS,
-  CONTRACT_ID,
-  HORIZON_URL,
-  NETWORK_PASSPHRASE,
-  RPC_URL,
-} from '@/lib/stellarConfig';
+import { readStellarConfig } from '@/lib/stellarConfig';
 
 function formatPtBR(value: number, minFrac = 2, maxFrac = 2): string {
   return value.toLocaleString('pt-BR', {
@@ -31,7 +25,26 @@ type CrowdfundClient = StellarSdk.contract.Client & {
   >;
 };
 
+function ConfigMissing() {
+  return (
+    <div className="min-h-screen bg-zinc-950 text-white p-8 flex items-center justify-center">
+      <div className="max-w-lg rounded-2xl border border-amber-500/40 bg-zinc-900/80 p-8 text-center">
+        <h1 className="text-xl font-semibold text-amber-200 mb-3">Configuração incompleta</h1>
+        <p className="text-zinc-300 text-sm mb-4">
+          Defina as variáveis <code className="text-amber-100/90">NEXT_PUBLIC_*</code> no painel da Vercel
+          (Settings → Environment Variables) ou crie um arquivo <code className="text-amber-100/90">.env</code>{' '}
+          localmente, conforme <code className="text-amber-100/90">crowdfund-next/.env.example</code>.
+        </p>
+        <p className="text-zinc-500 text-xs">
+          Sem isso o app não chama Horizon/Soroban e pode falhar ao carregar.
+        </p>
+      </div>
+    </div>
+  );
+}
+
 export default function Home() {
+  const cfg = useMemo(() => readStellarConfig(), []);
   const [publicKey, setPublicKey] = useState('');
   const [totalRaised, setTotalRaised] = useState(0);
   const [goal, setGoal] = useState(10000000000);
@@ -41,21 +54,25 @@ export default function Home() {
   const eventsCursorRef = useRef<string | null>(null);
 
   const fetchProgress = useCallback(async () => {
+    if (!cfg) return;
     try {
       const client = (await StellarSdk.contract.Client.from({
-        contractId: CONTRACT_ID,
-        networkPassphrase: NETWORK_PASSPHRASE,
-        rpcUrl: RPC_URL,
+        contractId: cfg.contractId,
+        networkPassphrase: cfg.networkPassphrase,
+        rpcUrl: cfg.rpcUrl,
       })) as CrowdfundClient;
       const { result: total } = await client.get_total();
       const { result: g } = await client.get_goal();
-      setTotalRaised(Number(total));
-      setGoal(Number(g));
-      setProgress(Math.min((Number(total) / Number(g)) * 100, 100));
+      const totalN = Number(total);
+      const goalN = Number(g);
+      setTotalRaised(totalN);
+      setGoal(goalN);
+      const pct = goalN > 0 ? Math.min((totalN / goalN) * 100, 100) : 0;
+      setProgress(pct);
     } catch {
       /* contrato inválido / RPC indisponível */
     }
-  }, []);
+  }, [cfg]);
 
   const connectWallet = async () => {
     setErrorMsg('');
@@ -85,22 +102,23 @@ export default function Home() {
   };
 
   const makeDonation = async (amountXLM: string) => {
+    if (!cfg) return;
     if (!publicKey) return alert('Conecte uma carteira!');
     setTxStatus('PENDING');
     setErrorMsg('');
 
     try {
       const { StellarWalletsKit } = await getWalletKit();
-      const server = new StellarSdk.Horizon.Server(HORIZON_URL);
+      const server = new StellarSdk.Horizon.Server(cfg.horizonUrl);
       const account = await server.loadAccount(publicKey);
 
       const tx = new StellarSdk.TransactionBuilder(account, {
         fee: StellarSdk.BASE_FEE,
-        networkPassphrase: NETWORK_PASSPHRASE,
+        networkPassphrase: cfg.networkPassphrase,
       })
         .addOperation(
           StellarSdk.Operation.payment({
-            destination: CAMPAIGN_ADDRESS,
+            destination: cfg.campaignAddress,
             asset: StellarSdk.Asset.native(),
             amount: amountXLM,
           }),
@@ -109,20 +127,20 @@ export default function Home() {
         .build();
 
       const signed = await StellarWalletsKit.signTransaction(tx.toXDR(), {
-        networkPassphrase: NETWORK_PASSPHRASE,
+        networkPassphrase: cfg.networkPassphrase,
         address: publicKey,
       });
-      const horizonTx = new StellarSdk.Transaction(signed.signedTxXdr, NETWORK_PASSPHRASE);
+      const horizonTx = new StellarSdk.Transaction(signed.signedTxXdr, cfg.networkPassphrase);
       await server.submitTransaction(horizonTx);
 
       const contractClient = (await StellarSdk.contract.Client.from({
-        contractId: CONTRACT_ID,
-        networkPassphrase: NETWORK_PASSPHRASE,
-        rpcUrl: RPC_URL,
+        contractId: cfg.contractId,
+        networkPassphrase: cfg.networkPassphrase,
+        rpcUrl: cfg.rpcUrl,
         publicKey,
         signTransaction: (xdr, opts) =>
           StellarWalletsKit.signTransaction(xdr, {
-            networkPassphrase: opts?.networkPassphrase ?? NETWORK_PASSPHRASE,
+            networkPassphrase: opts?.networkPassphrase ?? cfg.networkPassphrase,
             address: opts?.address ?? publicKey,
           }),
       })) as CrowdfundClient;
@@ -155,37 +173,37 @@ export default function Home() {
     }
   };
 
-  /** Sincroniza totais na carga e periodicamente (qualquer visitante). */
   useEffect(() => {
+    if (!cfg) return;
     fetchProgress();
     const interval = setInterval(fetchProgress, 4000);
     return () => clearInterval(interval);
-  }, [fetchProgress]);
+  }, [cfg, fetchProgress]);
 
-  /** Troca de conta / rede na carteira (multi-wallet). */
   useEffect(() => {
     let cancelled = false;
     let off: (() => void) | undefined;
     subscribeWalletState((payload) => {
       if (!cancelled) setPublicKey(payload.address ?? '');
-    }).then((unsub) => {
-      off = unsub;
-    });
+    })
+      .then((unsub) => {
+        if (!cancelled) off = unsub;
+      })
+      .catch(() => {
+        /* kit pode falhar em iframes / preview restrito — não derruba a página */
+      });
     return () => {
       cancelled = true;
       off?.();
     };
   }, []);
 
-  /**
-   * Soroban getEvents: quando há novos eventos do contrato, atualiza a UI
-   * (integração “tempo real” com o ledger, sem WebSocket obrigatório).
-   */
   useEffect(() => {
-    const rpc = new StellarSdk.rpc.Server(RPC_URL);
+    if (!cfg) return;
+    const rpc = new StellarSdk.rpc.Server(cfg.rpcUrl);
     const pollEvents = async () => {
       try {
-        const filter = { type: 'contract' as const, contractIds: [CONTRACT_ID] };
+        const filter = { type: 'contract' as const, contractIds: [cfg.contractId] };
         const res = eventsCursorRef.current
           ? await rpc.getEvents({
               filters: [filter],
@@ -210,7 +228,11 @@ export default function Home() {
     pollEvents();
     const id = setInterval(pollEvents, 6000);
     return () => clearInterval(id);
-  }, [fetchProgress]);
+  }, [cfg, fetchProgress]);
+
+  if (!cfg) {
+    return <ConfigMissing />;
+  }
 
   return (
     <div className="min-h-screen bg-zinc-950 text-white p-8">
@@ -286,7 +308,7 @@ export default function Home() {
 
         {publicKey ? (
           <p className="text-xs text-zinc-500 text-center mt-12">
-            Campanha: <span className="font-mono">{CAMPAIGN_ADDRESS.slice(0, 12)}…</span>
+            Campanha: <span className="font-mono">{cfg.campaignAddress.slice(0, 12)}…</span>
           </p>
         ) : null}
       </div>
