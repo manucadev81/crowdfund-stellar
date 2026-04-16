@@ -14,6 +14,24 @@ export type DonationHistoryRow = {
 
 type RpcEvent = StellarSdk.rpc.Api.EventResponse;
 
+/** JSON-RPC do Soroban costuma lançar `{ code, message }` (plain object), não `Error`. */
+export function formatUnknownError(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  if (typeof err === 'string') return err;
+  if (err && typeof err === 'object') {
+    const o = err as Record<string, unknown>;
+    if (typeof o.message === 'string') {
+      return typeof o.code === 'number' ? `[${o.code}] ${o.message}` : o.message;
+    }
+    try {
+      return JSON.stringify(o);
+    } catch {
+      return 'Erro desconhecido';
+    }
+  }
+  return String(err);
+}
+
 function topicSymbol(topic: StellarSdk.xdr.ScVal): string | null {
   if (topic.switch() !== StellarSdk.xdr.ScValType.scvSymbol()) return null;
   return topic.sym().toString();
@@ -117,7 +135,6 @@ export async function fetchDonationHistory(
 
     return { rows };
   } catch (e: unknown) {
-    const msg = e instanceof Error ? e.message : String(e);
-    return { rows: [], error: msg };
+    return { rows: [], error: formatUnknownError(e) };
   }
 }

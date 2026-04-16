@@ -5,7 +5,7 @@ import * as StellarSdk from '@stellar/stellar-sdk';
 import { getWalletKit, subscribeWalletState } from '@/lib/walletKit';
 import { readStellarConfig, type StellarConfig } from '@/lib/stellarConfig';
 import { transactionExplorerUrl } from '@/lib/stellarExplorer';
-import { fetchDonationHistory, type DonationHistoryRow } from '@/lib/donationHistory';
+import { fetchDonationHistory, formatUnknownError, type DonationHistoryRow } from '@/lib/donationHistory';
 
 function formatPtBR(value: number, minFrac = 2, maxFrac = 2): string {
   return value.toLocaleString('pt-BR', {
@@ -151,7 +151,7 @@ export default function Home() {
         : { maxPages: 12, lookbackLedgers: 150_000, pageLimit: 200 },
     );
     if (epoch !== donationHistoryEpoch.current) return;
-    if (error) setDonationHistoryError(error);
+    if (error) setDonationHistoryError(formatUnknownError(error));
     setDonationHistory(rows);
     if (mode === 'full') setDonationHistoryLoading(false);
   }, []);
